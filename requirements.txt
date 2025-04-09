@@ -8,3 +8,4 @@ tensorflow
 ta
 feedparser
 vaderSentiment
+plotly
