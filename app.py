@@ -7,7 +7,6 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import ta
-from io import BytesIO
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -19,12 +18,14 @@ def fetch_data(ticker, interval, period):
     df = df.dropna()
     return df
 
-# Function to create dataset for time series prediction
+# ✅ FIXED Function to create dataset for time series prediction
 def create_dataset(data, time_step=60):
+    if data.ndim == 2 and data.shape[1] == 1:
+        data = data.flatten()  # Convert to 1D array
     X, y = [], []
     for i in range(len(data) - time_step):
-        X.append(data[i:(i + time_step), 0])
-        y.append(data[i + time_step, 0])
+        X.append(data[i:(i + time_step)])
+        y.append(data[i + time_step])
     return np.array(X), np.array(y)
 
 # Function to build LSTM model
@@ -78,11 +79,7 @@ def get_market_sentiment(keywords=["nifty", "banknifty"]):
 def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     st.subheader(f"\nAnalyzing {ticker} at {interval} interval")
 
-    try:
-        df = fetch_data(ticker, interval, period)
-    except Exception as e:
-        st.warning(f"Skipping {ticker}: {e}")
-        return
+    df = fetch_data(ticker, interval, period)
 
     if df.shape[0] <= time_step:
         st.warning(f"Not enough data rows ({df.shape[0]}) for {ticker} with time_step {time_step}. Skipping.")
@@ -96,16 +93,12 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     # Prepare data for model
     close_prices = df[['Close']].dropna()
-    if close_prices.empty or len(close_prices) <= time_step:
+    if len(close_prices) <= time_step:
         st.warning(f"Not enough data points to make prediction for {ticker}. Needed >{time_step}, got {len(close_prices)}.")
         return
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     data_scaled = scaler.fit_transform(close_prices.values)
-
-    if data_scaled.shape[0] <= time_step:
-        st.warning(f"Scaled data too small to generate sequences for {ticker}. Skipping.")
-        return
 
     X, y = create_dataset(data_scaled, time_step)
     if X.size == 0 or y.size == 0:
@@ -118,10 +111,6 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     # Predict next point
     last_60_days = data_scaled[-time_step:]
-    if last_60_days.shape[0] != time_step:
-        st.warning(f"Unexpected shape for last_60_days in {ticker}. Skipping.")
-        return
-
     last_60_days = last_60_days.reshape(1, time_step, 1)
     prediction = model.predict(last_60_days)
     predicted_price = scaler.inverse_transform(prediction)[0][0]
@@ -150,7 +139,7 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     report['Predicted Next Price'] = predicted_price
     csv = report.to_csv().encode('utf-8')
     st.download_button(
-        label="📅 Download Prediction Report (CSV)",
+        label="📥 Download Prediction Report (CSV)",
         data=csv,
         file_name=f"{ticker}_{interval}_report.csv",
         mime='text/csv'
