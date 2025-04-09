@@ -45,9 +45,7 @@ def get_market_sentiment(keywords=["nifty", "banknifty"]):
     news_feed = feedparser.parse(feed_url)
     analyzer = SentimentIntensityAnalyzer()
 
-    sentiments = []
-    headlines = []
-    scores = []
+    sentiments, headlines, scores = [], [], []
 
     for entry in news_feed.entries[:25]:
         title = entry.title
@@ -64,9 +62,7 @@ def get_market_sentiment(keywords=["nifty", "banknifty"]):
 
     df_sentiment = pd.DataFrame({"Headline": headlines, "Sentiment": sentiments, "Score": scores})
     st.table(df_sentiment)
-
-    sentiment_count = df_sentiment['Sentiment'].value_counts()
-    st.bar_chart(sentiment_count)
+    st.bar_chart(df_sentiment['Sentiment'].value_counts())
 
     avg_score = np.mean(scores)
     if avg_score > 0.05:
@@ -81,6 +77,7 @@ def get_market_sentiment(keywords=["nifty", "banknifty"]):
 # Predict and plot with sentiment influence
 def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     st.subheader(f"\nAnalyzing {ticker} at {interval} interval")
+
     df = fetch_data(ticker, interval, period)
 
     # Technical Indicators
@@ -91,12 +88,19 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     # Prepare data for model
     close_prices = df[['Close']].dropna()
+    if len(close_prices) <= time_step:
+        st.warning(f"Not enough data points to make prediction for {ticker}. Needed >{time_step}, got {len(close_prices)}.")
+        return
+
     scaler = MinMaxScaler(feature_range=(0, 1))
     data_scaled = scaler.fit_transform(close_prices.values)
 
     X, y = create_dataset(data_scaled, time_step)
-    X = X.reshape(X.shape[0], X.shape[1], 1)
+    if X.size == 0 or y.size == 0:
+        st.warning(f"Insufficient data after processing for {ticker}. Skipping.")
+        return
 
+    X = X.reshape(X.shape[0], X.shape[1], 1)
     model = build_model((X.shape[1], 1))
     model.fit(X, y, epochs=5, batch_size=32, verbose=0)
 
@@ -162,4 +166,4 @@ for ticker in ticker_list:
     try:
         predict_and_plot(ticker, interval, period, sentiment_score)
     except Exception as e:
-        st.error(f"Error processing {ticker} at interval {interval}: {e}")
+        st.error(f"❌ Error processing {ticker} at interval {interval}: {e}")
