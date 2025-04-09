@@ -12,6 +12,15 @@ import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import plotly.graph_objects as go
 
+# Function to create dataset for time series prediction
+def create_dataset(data, time_step=60):
+    X, y = [], []
+    data = data.flatten()  # ✅ Ensure it's 1D
+    for i in range(len(data) - time_step):
+        X.append(data[i:(i + time_step)])
+        y.append(data[i + time_step])
+    return np.array(X), np.array(y)
+
 # Function to fetch and prepare data
 def fetch_data(ticker, interval, period):
     df = yf.download(tickers=ticker, interval=interval, period=period)
@@ -30,15 +39,6 @@ def validate_interval(ticker, interval):
         st.warning(f"⚠️ {interval} data not available for index {ticker}. Switching to '1d'.")
         return "1d"
     return interval
-
-# Function to create dataset for time series prediction
-def create_dataset(data, time_step=60):
-    X, y = [], []
-    data = data.flatten()  # ✅ Ensure it's 1D
-    for i in range(len(data) - time_step):
-        X.append(data[i:(i + time_step)])
-        y.append(data[i + time_step])
-    return np.array(X), np.array(y)
 
 # Function to build LSTM model
 def build_model(input_shape):
