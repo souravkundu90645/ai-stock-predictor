@@ -7,6 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import ta
+from io import BytesIO
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import plotly.graph_objects as go
@@ -18,6 +19,17 @@ def fetch_data(ticker, interval, period):
         raise ValueError(f"No data returned for {ticker} with interval {interval} and period {period}")
     df = df.dropna()
     return df
+
+# Utility to check if ticker is an index (simple check)
+def is_index(ticker):
+    return ticker.upper() in ['^NSEI', '^NSEBANK', '^BSESN', 'NIFTY', 'BANKNIFTY', 'SENSEX']
+
+# Validate interval for indices
+def validate_interval(ticker, interval):
+    if is_index(ticker) and interval in ["1m", "5m", "10m", "15m", "30m", "60m"]:
+        st.warning(f"⚠️ {interval} data not available for index {ticker}. Switching to '1d'.")
+        return "1d"
+    return interval
 
 # Function to create dataset for time series prediction
 def create_dataset(data, time_step=60):
@@ -84,13 +96,11 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
         st.warning(f"Not enough data rows ({df.shape[0]}) for {ticker} with time_step {time_step}. Skipping.")
         return
 
-    # Technical Indicators
     df['RSI'] = ta.momentum.RSIIndicator(df['Close']).rsi()
     df['MACD'] = ta.trend.MACD(df['Close']).macd()
     df['SMA_20'] = ta.trend.SMAIndicator(df['Close'], window=20).sma_indicator()
     df['EMA_20'] = ta.trend.EMAIndicator(df['Close'], window=20).ema_indicator()
 
-    # Prepare data for model
     close_prices = df[['Close']].dropna()
     if len(close_prices) <= time_step:
         st.warning(f"Not enough data points to make prediction for {ticker}. Needed >{time_step}, got {len(close_prices)}.")
@@ -108,17 +118,11 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     model = build_model((X.shape[1], 1))
     model.fit(X, y, epochs=5, batch_size=32, verbose=0)
 
-    # Predict next point
     last_60_days = data_scaled[-time_step:]
     last_60_days = last_60_days.reshape(1, time_step, 1)
     prediction = model.predict(last_60_days)
-
-    if prediction.ndim > 2:
-        prediction = prediction.reshape(-1, 1)
-
     predicted_price = scaler.inverse_transform(prediction)[0][0]
 
-    # Modify prediction using sentiment
     if sentiment_score > 0.05:
         predicted_price *= 1.01
     elif sentiment_score < -0.05:
@@ -126,22 +130,28 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     st.write(f"Predicted Next Price (Adjusted for Sentiment): **{predicted_price:.2f}**")
 
-    # Plot candlestick chart using Plotly
-    st.plotly_chart(go.Figure(data=[
-        go.Candlestick(
-            x=df.index,
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close']
-        )
-    ]).update_layout(title=f"{ticker} Candlestick Chart", xaxis_title="Date", yaxis_title="Price"))
+    # Candlestick chart
+    fig_candle = go.Figure(data=[
+        go.Candlestick(x=df.index,
+                       open=df['Open'],
+                       high=df['High'],
+                       low=df['Low'],
+                       close=df['Close'],
+                       name='Candlesticks')
+    ])
+    fig_candle.update_layout(title=f"Candlestick Chart: {ticker} ({interval})",
+                             xaxis_title='Date', yaxis_title='Price')
+    st.plotly_chart(fig_candle, use_container_width=True)
 
-    # Plot RSI and MACD
+    fig, ax = plt.subplots(figsize=(10, 4))
+    df[['Close', 'SMA_20', 'EMA_20']].plot(ax=ax, title=f"{ticker} Closing Prices with MA ({interval})")
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Price')
+    st.pyplot(fig)
+
     st.line_chart(df[['RSI']].dropna(), use_container_width=True)
     st.line_chart(df[['MACD']].dropna(), use_container_width=True)
 
-    # Download report as CSV
     report = df[['Close', 'RSI', 'MACD', 'SMA_20', 'EMA_20']].copy()
     report['Predicted Next Price'] = predicted_price
     csv = report.to_csv().encode('utf-8')
@@ -155,27 +165,23 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 # Streamlit app
 st.title("📈 AI Stock Predictor: Multi-Ticker with Technicals + Sentiment")
 
-# Get market sentiment score
 sentiment_score = get_market_sentiment()
 
-# Ticker input
-user_input = st.text_input("Enter comma-separated tickers (e.g. NIFTY, BANKNIFTY, RELIANCE.NS):", "NIFTY, BANKNIFTY")
-ticker_list = [ticker.strip().upper().replace("^NSEI", "NIFTY").replace("^NSEBANK", "BANKNIFTY") for ticker in user_input.split(",") if ticker.strip()]
+user_input = st.text_input("Enter comma-separated tickers (e.g. RELIANCE.NS,TCS.NS,HDFCBANK.NS):", "RELIANCE.NS,TCS.NS,HDFCBANK.NS")
+ticker_list = [ticker.strip() for ticker in user_input.split(",") if ticker.strip()]
 
-# Time intervals and periods
 intervals_periods = [
     ("1m", "1d"), ("5m", "5d"), ("10m", "5d"), ("15m", "5d"),
     ("30m", "1mo"), ("60m", "1mo"), ("1d", "3mo"), ("1wk", "6mo"),
     ("1mo", "1y"), ("3mo", "2y"), ("6mo", "5y"), ("1y", "10y")
 ]
 
-# User selects timeframe
 interval = st.selectbox("Select Interval:", [ip[0] for ip in intervals_periods])
 period = next((ip[1] for ip in intervals_periods if ip[0] == interval), "1mo")
 
-# Predict for each ticker
 for ticker in ticker_list:
     try:
-        predict_and_plot(ticker, interval, period, sentiment_score)
+        valid_interval = validate_interval(ticker, interval)
+        predict_and_plot(ticker, valid_interval, period, sentiment_score)
     except Exception as e:
         st.error(f"❌ Error processing {ticker} at interval {interval}: {e}")
