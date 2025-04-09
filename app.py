@@ -7,10 +7,9 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import ta
-import plotly.graph_objects as go
-from io import BytesIO
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import plotly.graph_objects as go
 
 # Function to fetch and prepare data
 def fetch_data(ticker, interval, period):
@@ -26,7 +25,7 @@ def create_dataset(data, time_step=60):
     for i in range(len(data) - time_step):
         X.append(data[i:(i + time_step), 0])
         y.append(data[i + time_step, 0])
-    return np.array(X), np.array(y).reshape(-1)
+    return np.array(X), np.array(y)
 
 # Function to build LSTM model
 def build_model(input_shape):
@@ -110,8 +109,13 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     model.fit(X, y, epochs=5, batch_size=32, verbose=0)
 
     # Predict next point
-    last_60_days = data_scaled[-time_step:].reshape(1, time_step, 1)
+    last_60_days = data_scaled[-time_step:]
+    last_60_days = last_60_days.reshape(1, time_step, 1)
     prediction = model.predict(last_60_days)
+
+    if prediction.ndim > 2:
+        prediction = prediction.reshape(-1, 1)
+
     predicted_price = scaler.inverse_transform(prediction)[0][0]
 
     # Modify prediction using sentiment
@@ -122,19 +126,16 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     st.write(f"Predicted Next Price (Adjusted for Sentiment): **{predicted_price:.2f}**")
 
-    # Candlestick chart using Plotly
-    fig = go.Figure(data=[go.Candlestick(
-        x=df.index,
-        open=df['Open'], high=df['High'],
-        low=df['Low'], close=df['Close'],
-        name="Candlestick")])
-
-    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue', width=1), name='SMA 20'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_20'], line=dict(color='orange', width=1), name='EMA 20'))
-
-    fig.update_layout(title=f"{ticker} Candlestick Chart with Moving Averages ({interval})",
-                      xaxis_title='Date', yaxis_title='Price', xaxis_rangeslider_visible=False)
-    st.plotly_chart(fig)
+    # Plot candlestick chart using Plotly
+    st.plotly_chart(go.Figure(data=[
+        go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close']
+        )
+    ]).update_layout(title=f"{ticker} Candlestick Chart", xaxis_title="Date", yaxis_title="Price"))
 
     # Plot RSI and MACD
     st.line_chart(df[['RSI']].dropna(), use_container_width=True)
@@ -152,15 +153,14 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     )
 
 # Streamlit app
-st.title("📈 AI Stock Predictor: Indian Indices & Stocks with Technicals + Sentiment")
+st.title("📈 AI Stock Predictor: Multi-Ticker with Technicals + Sentiment")
 
 # Get market sentiment score
 sentiment_score = get_market_sentiment()
 
-# Default to major indices
-default_tickers = "^NSEI,^NSEBANK,^BSESN,RELIANCE.NS,INFY.NS,TCS.NS,ICICIBANK.NS"
-user_input = st.text_input("Enter comma-separated tickers (e.g. ^NSEI,^NSEBANK,RELIANCE.NS):", default_tickers)
-ticker_list = [ticker.strip() for ticker in user_input.split(",") if ticker.strip()]
+# Ticker input
+user_input = st.text_input("Enter comma-separated tickers (e.g. NIFTY, BANKNIFTY, RELIANCE.NS):", "NIFTY, BANKNIFTY")
+ticker_list = [ticker.strip().upper().replace("^NSEI", "NIFTY").replace("^NSEBANK", "BANKNIFTY") for ticker in user_input.split(",") if ticker.strip()]
 
 # Time intervals and periods
 intervals_periods = [
