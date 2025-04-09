@@ -80,6 +80,10 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
 
     df = fetch_data(ticker, interval, period)
 
+    if df.shape[0] <= time_step:
+        st.warning(f"Not enough data rows ({df.shape[0]}) for {ticker} with time_step {time_step}. Skipping.")
+        return
+
     # Technical Indicators
     df['RSI'] = ta.momentum.RSIIndicator(df['Close']).rsi()
     df['MACD'] = ta.trend.MACD(df['Close']).macd()
