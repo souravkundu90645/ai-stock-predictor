@@ -34,9 +34,10 @@ def validate_interval(ticker, interval):
 # Function to create dataset for time series prediction
 def create_dataset(data, time_step=60):
     X, y = [], []
+    data = data.flatten()  # ✅ Ensure it's 1D
     for i in range(len(data) - time_step):
-        X.append(data[i:(i + time_step), 0])
-        y.append(data[i + time_step, 0])
+        X.append(data[i:(i + time_step)])
+        y.append(data[i + time_step])
     return np.array(X), np.array(y)
 
 # Function to build LSTM model
