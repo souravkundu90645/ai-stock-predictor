@@ -7,7 +7,6 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import ta
-from io import BytesIO
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import plotly.graph_objects as go
@@ -15,7 +14,7 @@ import plotly.graph_objects as go
 # Function to create dataset for time series prediction
 def create_dataset(data, time_step=60):
     X, y = [], []
-    data = data.flatten()  # ✅ Ensure it's 1D
+    data = data.reshape(-1)  # ✅ Ensures 1D shape for slicing
     for i in range(len(data) - time_step):
         X.append(data[i:(i + time_step)])
         y.append(data[i + time_step])
@@ -111,11 +110,17 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     data_scaled = scaler.fit_transform(close_prices.values)
 
     X, y = create_dataset(data_scaled, time_step)
+    st.write(f"🔢 Dataset Shapes for {ticker}:")
+    st.write(f"X shape before reshape: {X.shape}")
+    st.write(f"y shape: {y.shape}")
+
     if X.size == 0 or y.size == 0:
         st.warning(f"Insufficient data after processing for {ticker}. Skipping.")
         return
 
     X = X.reshape(X.shape[0], X.shape[1], 1)
+    st.write(f"X shape after reshape (for LSTM): {X.shape}")
+
     model = build_model((X.shape[1], 1))
     model.fit(X, y, epochs=5, batch_size=32, verbose=0)
 
@@ -129,7 +134,7 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
     elif sentiment_score < -0.05:
         predicted_price *= 0.99
 
-    st.write(f"Predicted Next Price (Adjusted for Sentiment): **{predicted_price:.2f}**")
+    st.write(f"📊 Predicted Next Price (Adjusted for Sentiment): **{predicted_price:.2f}**")
 
     # Candlestick chart
     fig_candle = go.Figure(data=[
@@ -163,7 +168,8 @@ def predict_and_plot(ticker, interval, period, sentiment_score, time_step=60):
         mime='text/csv'
     )
 
-# Streamlit app
+# ================= Streamlit App ==================
+
 st.title("📈 AI Stock Predictor: Multi-Ticker with Technicals + Sentiment")
 
 sentiment_score = get_market_sentiment()
